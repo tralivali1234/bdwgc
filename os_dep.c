@@ -3,6 +3,7 @@
  * Copyright (c) 1991-1995 by Xerox Corporation.  All rights reserved.
  * Copyright (c) 1996-1999 by Silicon Graphics.  All rights reserved.
  * Copyright (c) 1999 by Hewlett-Packard Company.  All rights reserved.
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -226,13 +227,13 @@ GC_INNER char * GC_get_maps(void)
             maps_size = 0;
             do {
                 result = GC_repeat_read(f, maps_buf, maps_buf_sz-1);
-                if (result <= 0)
-                  break;
+                if (result <= 0) {
+                    close(f);
+                    return 0;
+                }
                 maps_size += result;
             } while ((size_t)result == maps_buf_sz-1);
             close(f);
-            if (result <= 0)
-              return 0;
 #           ifdef THREADS
               if (maps_size > old_maps_size) {
                 /* This might be caused by e.g. thread creation. */
@@ -426,8 +427,12 @@ GC_INNER char * GC_get_maps(void)
   {
     ptr_t data_end = DATAEND;
 
-#   if (defined(LINUX) || defined(HURD)) && !defined(IGNORE_PROG_DATA_START)
+#   if (defined(LINUX) || defined(HURD)) && defined(USE_PROG_DATA_START)
       /* Try the easy approaches first: */
+      /* However, this may lead to wrong data start value if libgc  */
+      /* code is put into a shared library (directly or indirectly) */
+      /* which is linked with -Bsymbolic-functions option.  Thus,   */
+      /* the following is not used by default.                      */
       if (COVERT_DATAFLOW(__data_start) != 0) {
         GC_data_start = (ptr_t)(__data_start);
       } else {
@@ -965,6 +970,7 @@ GC_INNER size_t GC_page_size = 0;
     /* the smallest location q s.t. [q,p) is addressable (!up). */
     /* We assume that p (up) or p-1 (!up) is addressable.       */
     /* Requires allocation lock.                                */
+    GC_ATTR_NO_SANITIZE_ADDR
     STATIC ptr_t GC_find_limit_with_bound(ptr_t p, GC_bool up, ptr_t bound)
     {
         static volatile ptr_t result;
@@ -1685,9 +1691,11 @@ void GC_register_data_segments(void)
         /* Also check whether VirtualAlloc accepts MEM_WRITE_WATCH,   */
         /* as some versions of kernel32.dll have one but not the      */
         /* other, making the feature completely broken.               */
-        void * page = VirtualAlloc(NULL, GC_page_size,
-                                    MEM_WRITE_WATCH | MEM_RESERVE,
-                                    PAGE_READWRITE);
+        void * page;
+
+        GC_ASSERT(GC_page_size != 0);
+        page = VirtualAlloc(NULL, GC_page_size, MEM_WRITE_WATCH | MEM_RESERVE,
+                            PAGE_READWRITE);
         if (page != NULL) {
           PVOID pages[16];
           GC_ULONG_PTR count = 16;
@@ -1771,11 +1779,10 @@ void GC_register_data_segments(void)
   STATIC ptr_t GC_least_described_address(ptr_t start)
   {
     MEMORY_BASIC_INFORMATION buf;
-    LPVOID limit;
-    ptr_t p;
+    LPVOID limit = GC_sysinfo.lpMinimumApplicationAddress;
+    ptr_t p = (ptr_t)((word)start & ~(GC_page_size - 1));
 
-    limit = GC_sysinfo.lpMinimumApplicationAddress;
-    p = (ptr_t)((word)start & ~(GC_page_size - 1));
+    GC_ASSERT(GC_page_size != 0);
     for (;;) {
         size_t result;
         LPVOID q = (LPVOID)(p - GC_page_size);
@@ -1878,8 +1885,6 @@ void GC_register_data_segments(void)
     }
   }
 # endif /* USE_WINALLOC && !REDIRECT_MALLOC */
-
-  STATIC word GC_n_heap_bases = 0;      /* See GC_heap_bases.   */
 
   /* Is p the start of either the malloc heap, or of one of our */
   /* heap sections?                                             */
@@ -2196,6 +2201,7 @@ void GC_register_data_segments(void)
       }
 #   endif
 
+    GC_ASSERT(GC_page_size != 0);
     if (bytes & (GC_page_size - 1)) ABORT("Bad GET_MEM arg");
     result = mmap(last_addr, bytes, (PROT_READ | PROT_WRITE)
                                     | (GC_pages_executable ? PROT_EXEC : 0),
@@ -2249,6 +2255,7 @@ STATIC ptr_t GC_unix_sbrk_get_mem(size_t bytes)
     ptr_t cur_brk = (ptr_t)sbrk(0);
     SBRK_ARG_T lsbs = (word)cur_brk & (GC_page_size-1);
 
+    GC_ASSERT(GC_page_size != 0);
     if ((SBRK_ARG_T)bytes < 0) {
         result = 0; /* too big */
         goto out;
@@ -2341,6 +2348,7 @@ void * os2_alloc(size_t bytes)
     ptr_t result = 0; /* initialized to prevent warning. */
     word i;
 
+    GC_ASSERT(GC_page_size != 0);
     bytes = ROUNDUP_PAGESIZE(bytes);
 
     /* Try to find reserved, uncommitted pages */
@@ -2553,6 +2561,7 @@ STATIC ptr_t GC_unmap_start(ptr_t start, size_t bytes)
     ptr_t result = (ptr_t)(((word)start + GC_page_size - 1)
                             & ~(GC_page_size - 1));
 
+    GC_ASSERT(GC_page_size != 0);
     if ((word)(result + GC_page_size) > (word)(start + bytes)) return 0;
     return result;
 }
@@ -3220,6 +3229,7 @@ GC_API GC_push_other_roots_proc GC_CALL GC_get_push_other_roots(void)
         GC_bool in_allocd_block;
         size_t i;
 
+        GC_ASSERT(GC_page_size != 0);
 #       ifdef CHECKSUMS
           GC_record_fault(h);
 #       endif
@@ -3438,6 +3448,7 @@ STATIC void GC_protect_heap(void)
     GC_bool protect_all =
         (0 != (GC_incremental_protection_needs() & GC_PROTECTS_PTRFREE_HEAP));
 
+    GC_ASSERT(GC_page_size != 0);
     for (i = 0; i < GC_n_heap_sects; i++) {
         ptr_t start = GC_heap_sects[i].hs_start;
         size_t len = GC_heap_sects[i].hs_bytes;
@@ -3810,6 +3821,7 @@ GC_INNER GC_bool GC_dirty_init(void)
 
       if (!GC_auto_incremental || GC_GWW_AVAILABLE())
         return;
+      GC_ASSERT(GC_page_size != 0);
       h_trunc = (struct hblk *)((word)h & ~(GC_page_size-1));
       h_end = (struct hblk *)(((word)(h + nblocks) + GC_page_size - 1)
                               & ~(GC_page_size - 1));
@@ -4437,6 +4449,7 @@ catch_exception_raise(mach_port_t exception_port GC_ATTR_UNUSED,
     GC_sigbus_count = 0;
 # endif
 
+  GC_ASSERT(GC_page_size != 0);
   if (GC_mprotect_state == GC_MP_NORMAL) { /* common case */
     struct hblk * h = (struct hblk*)((word)addr & ~(GC_page_size-1));
     size_t i;

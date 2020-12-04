@@ -2,6 +2,7 @@
  * Copyright 1988, 1989 Hans-J. Boehm, Alan J. Demers
  * Copyright (c) 1991-1995 by Xerox Corporation.  All rights reserved.
  * Copyright (c) 2000 by Hewlett-Packard Company.  All rights reserved.
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -97,26 +98,9 @@ GC_INNER struct obj_kind GC_obj_kinds[MAXOBJKINDS] = {
                                 /* Used for logging only.               */
 #endif
 
-GC_INNER size_t GC_mark_stack_size = 0;
-
 #ifdef PARALLEL_MARK
-  STATIC volatile AO_t GC_first_nonempty = 0;
-        /* Lowest entry on mark stack   */
-        /* that may be nonempty.        */
-        /* Updated only by initiating   */
-        /* thread.                      */
-
   GC_INNER GC_bool GC_parallel_mark_disabled = FALSE;
 #endif
-
-GC_INNER mark_state_t GC_mark_state = MS_NONE;
-
-GC_INNER GC_bool GC_mark_stack_too_small = FALSE;
-
-STATIC struct hblk * GC_scan_ptr;
-
-STATIC GC_bool GC_objects_are_marked = FALSE;
-                /* Are there collectible marked objects in the heap?    */
 
 /* Is a collection in progress?  Note that this can return true in the  */
 /* non-incremental case, if a collection has been abandoned and the     */
@@ -905,8 +889,6 @@ STATIC unsigned GC_active_count = 0;    /* Number of active helpers.    */
 
 GC_INNER word GC_mark_no = 0;
 
-STATIC mse *GC_main_local_mark_stack;
-
 #ifdef LINT2
 # define LOCAL_MARK_STACK_SIZE (HBLKSIZE / 8)
 #else
@@ -934,6 +916,8 @@ GC_INNER void GC_wait_for_markers_init(void)
   {
     size_t bytes_to_get =
                 ROUNDUP_PAGESIZE_IF_MMAP(LOCAL_MARK_STACK_SIZE * sizeof(mse));
+
+    GC_ASSERT(GC_page_size != 0);
     GC_main_local_mark_stack = (mse *)GET_MEM(bytes_to_get);
     if (NULL == GC_main_local_mark_stack)
       ABORT("Insufficient memory for main local_mark_stack");
@@ -1521,8 +1505,6 @@ struct trace_entry {
     word arg1;
     word arg2;
 } GC_trace_buf[TRACE_ENTRIES] = { { NULL, 0, 0, 0, 0 } };
-
-int GC_trace_buf_ptr = 0;
 
 void GC_add_trace_entry(char *kind, word arg1, word arg2)
 {

@@ -2,6 +2,7 @@
  * Copyright 1988, 1989 Hans-J. Boehm, Alan J. Demers
  * Copyright (c) 1991-1994 by Xerox Corporation.  All rights reserved.
  * Copyright (c) 1999-2001 by Hewlett-Packard Company. All rights reserved.
+ * Copyright (c) 2008-2020 Ivan Maidanski
  *
  * THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
  * OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
@@ -685,6 +686,7 @@ GC_API void GC_CALL GC_get_heap_usage_safe(GC_word *pheap_size,
       }
       /* At this execution point, GC_setpagesize() and GC_init_win32()  */
       /* must already be called (for GET_MEM() to work correctly).      */
+      GC_ASSERT(GC_page_size != 0);
       content = (char *)GET_MEM(ROUNDUP_PAGESIZE_IF_MMAP((size_t)len + 1));
       if (content == NULL) {
         CloseHandle(hFile);
@@ -2058,6 +2060,7 @@ GC_API unsigned GC_CALL GC_new_kind_inner(void **fl, GC_word descr,
 {
     unsigned result = GC_n_kinds;
 
+    GC_ASSERT(NONNULL_ARG_NOT_NULL(fl));
     GC_ASSERT(adjust == FALSE || adjust == TRUE);
     /* If an object is not needed to be cleared (when moved to the      */
     /* free list) then its descriptor should be zero to denote          */
@@ -2066,6 +2069,7 @@ GC_API unsigned GC_CALL GC_new_kind_inner(void **fl, GC_word descr,
     GC_ASSERT(clear == TRUE
               || (descr == 0 && adjust == FALSE && clear == FALSE));
     if (result < MAXOBJKINDS) {
+      GC_ASSERT(result > 0);
       GC_n_kinds++;
       GC_obj_kinds[result].ok_freelist = fl;
       GC_obj_kinds[result].ok_reclaim_list = 0;
