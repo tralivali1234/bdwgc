@@ -2,54 +2,36 @@
 # compiler from www.digitalmars.com
 # Written by Walter Bright
 
-DEFINES=-D_WINDOWS -DGC_DLL -DGC_THREADS -DGC_DISCOVER_TASK_THREADS -DALL_INTERIOR_POINTERS -DENABLE_DISCLAIM -DGC_ATOMIC_UNCOLLECTABLE -DGC_GCJ_SUPPORT -DJAVA_FINALIZATION -DNO_EXECUTE_PERMISSION -DUSE_MUNMAP
-CFLAGS=-Iinclude -Ilibatomic_ops\src $(DEFINES) -wx -g
+CFLAGS_EXTRA=
+DEFINES=-DGC_DLL -DGC_THREADS -DGC_DISCOVER_TASK_THREADS \
+    -DALL_INTERIOR_POINTERS -DENABLE_DISCLAIM -DGC_ATOMIC_UNCOLLECTABLE \
+    -DGC_GCJ_SUPPORT -DJAVA_FINALIZATION -DNO_EXECUTE_PERMISSION \
+    -DGC_REQUIRE_WCSDUP -DUSE_MUNMAP
+CORD_DEFINES=-DGC_DLL -DCORD_NOT_DLL
+CFLAGS=-Iinclude -Ilibatomic_ops\src $(DEFINES) -g $(CFLAGS_EXTRA)
+CORD_CFLAGS=-Iinclude $(CORD_DEFINES) -g $(CFLAGS_EXTRA)
 LFLAGS=/ma/implib/co
 CC=sc
 
-.c.obj:
-	$(CC) -c $(CFLAGS) $*
+# Must precede other goals.
+all: cord.lib gc.lib
+
+gc.obj: extra\gc.c
+	$(CC) -c $(CFLAGS) extra\gc.c -ogc.obj
 
 .cpp.obj:
 	$(CC) -c $(CFLAGS) -Aa $*
 
-OBJS=	\
-	allchblk.obj\
-	alloc.obj\
-	blacklst.obj\
-	checksums.obj\
-	dbg_mlc.obj\
-	fnlz_mlc.obj\
-	dyn_load.obj\
-	finalize.obj\
-	gc_badalc.obj\
-	gc_cpp.obj\
-	gcj_mlc.obj\
-	headers.obj\
-	mach_dep.obj\
-	malloc.obj\
-	mallocx.obj\
-	mark.obj\
-	mark_rts.obj\
-	misc.obj\
-	new_hblk.obj\
-	obj_map.obj\
-	os_dep.obj\
-	ptr_chck.obj\
-	reclaim.obj\
-	typd_mlc.obj\
-	win32_threads.obj
-
-targets: gc.dll gc.lib
-
-check: gctest.exe test_cpp.exe
+check: gctest.exe cpptest.exe treetest.exe cordtest.exe
 	gctest.exe
-	test_cpp.exe
+	cpptest.exe
+	treetest.exe
+	cordtest.exe
 
 gc.lib: gc.dll
 
-gc.dll: $(OBJS) gc.def digimars.mak
-	$(CC) -ogc.dll $(OBJS) -L$(LFLAGS) gc.def kernel32.lib user32.lib
+gc.dll: gc.obj gc_badalc.obj gc_cpp.obj gc.def digimars.mak
+	$(CC) -ogc.dll gc.obj gc_badalc.obj gc_cpp.obj -L$(LFLAGS) gc.def kernel32.lib user32.lib
 
 gc.def: digimars.mak
 	echo LIBRARY GC >gc.def
@@ -59,44 +41,47 @@ gc.def: digimars.mak
 	echo GC_is_visible_print_proc >>gc.def
 	echo GC_is_valid_displacement_print_proc >>gc.def
 
+# FIXME: building cord as DLL results in cordtest fail.
+cord.lib: cord\cordbscs.obj cord\cordprnt.obj cord\cordxtra.obj
+	lib -c cord.lib cord\cordbscs.obj cord\cordprnt.obj cord\cordxtra.obj
+
+cord\cordbscs.obj: cord\cordbscs.c
+	$(CC) -c $(CORD_CFLAGS) cord\cordbscs.c -ocord\cordbscs.obj
+
+cord\cordprnt.obj: cord\cordprnt.c
+	$(CC) -c $(CORD_CFLAGS) cord\cordprnt.c -ocord\cordprnt.obj
+
+cord\cordxtra.obj: cord\cordxtra.c
+	$(CC) -c $(CORD_CFLAGS) cord\cordxtra.c -ocord\cordxtra.obj
+
 clean:
-	del *.log gc.def gc.dll gc.lib gc.map gctest.map test_cpp.map
-	del tests\test.obj gctest.exe tests\test_cpp.obj test_cpp.exe
-	del $(OBJS)
+	del *.log *.map *.obj gc.def gc.dll gc.lib
+	del tests\*.obj gctest.exe cpptest.exe treetest.exe
+	del cord\*.obj cord.lib cord\tests\cordtest.obj cordtest.exe
 
-gctest.exe: gc.lib tests\test.obj
-	$(CC) -ogctest.exe tests\test.obj gc.lib
+gctest.exe: gc.lib tests\gctest.obj
+	$(CC) -ogctest.exe tests\gctest.obj gc.lib
 
-tests\test.obj: tests\test.c
-	$(CC) -c $(CFLAGS) tests\test.c -otests\test.obj
+tests\gctest.obj: tests\gctest.c
+	$(CC) -c $(CFLAGS) tests\gctest.c -otests\gctest.obj
 
-test_cpp.exe: gc.lib tests\test_cpp.obj
-	$(CC) -otest_cpp.exe tests\test_cpp.obj gc.lib
+cpptest.exe: gc.lib tests\cpptest.obj
+	$(CC) -ocpptest.exe tests\cpptest.obj gc.lib
 
-tests\test_cpp.obj: tests\test_cpp.cc
-	$(CC) -c $(CFLAGS) -cpp tests\test_cpp.cc -otests\test_cpp.obj
+tests\cpptest.obj: tests\cpp.cc
+	$(CC) -c $(CFLAGS) -cpp tests\cpp.cc -otests\cpptest.obj
 
-allchblk.obj: allchblk.c
-alloc.obj: alloc.c
-blacklst.obj: blacklst.c
-checksums.obj: checksums.c
-dbg_mlc.obj: dbg_mlc.c
-dyn_load.obj: dyn_load.c
-finalize.obj: finalize.c
-fnlz_mlc.obj: fnlz_mlc.c
+treetest.exe: gc.lib tests\treetest.obj
+	$(CC) -otreetest.exe tests\treetest.obj gc.lib
+
+tests\treetest.obj: tests\tree.cc
+	$(CC) -c $(CFLAGS) -cpp tests\tree.cc -otests\treetest.obj
+
+cordtest.exe: cord\tests\cordtest.obj cord.lib gc.lib
+	$(CC) -ocordtest.exe cord\tests\cordtest.obj cord.lib gc.lib
+
+cord\tests\cordtest.obj: cord\tests\cordtest.c
+	$(CC) -c $(CORD_CFLAGS) cord\tests\cordtest.c -ocord\tests\cordtest.obj
+
 gc_badalc.obj: gc_badalc.cc gc_badalc.cpp
 gc_cpp.obj: gc_cpp.cc gc_cpp.cpp
-headers.obj: headers.c
-mach_dep.obj: mach_dep.c
-malloc.obj: malloc.c
-mallocx.obj: mallocx.c
-mark.obj: mark.c
-mark_rts.obj: mark_rts.c
-misc.obj: misc.c
-new_hblk.obj: new_hblk.c
-obj_map.obj: obj_map.c
-os_dep.obj: os_dep.c
-ptr_chck.obj: ptr_chck.c
-reclaim.obj: reclaim.c
-typd_mlc.obj: typd_mlc.c
-win32_threads.obj: win32_threads.c

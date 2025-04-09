@@ -4,7 +4,7 @@
 # OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
 #
 # Permission is hereby granted to use or copy this program
-# for any purpose,  provided the above notices are retained on all copies.
+# for any purpose, provided the above notices are retained on all copies.
 # Permission to modify the code and to distribute modified code is granted,
 # provided the above notices are retained, and a notice that the code was
 # modified is included with the above copyright notice.
@@ -14,23 +14,16 @@
 # Info (current:revision:age) for the Libtool versioning system.
 # These numbers should be updated at most once just before the release,
 # and, optionally, at most once during the development (after the release).
-LIBGC_VER_INFO = 6:0:5
-LIBGCCPP_VER_INFO = 5:0:4
+LIBGC_VER_INFO = 6:3:5
+LIBGCCPP_VER_INFO = 6:0:5
 
 ## FIXME: `make distcheck' in this directory will not currently work.
 ##     This is most likely to the explicit flags passed to submakes.
 
 # We currently use the source files directly from libatomic_ops, if we
-# use the internal version.  This is done since libatomic_ops doesn't
-# use libtool, since it has no real use for it.  But that seems to make
-# it hard to use either the resulting object files or libraries.
+# use the internal version.
 # Thus there seems to be no real reason to recursively build in the
 # libatomic_ops directory.
-# if USE_INTERNAL_LIBATOMICS_OPS
-# SUBDIRS = @maybe_libatomic_ops@
-# else
-# SUBDIRS =
-# endif
 SUBDIRS =
 
 ACLOCAL_AMFLAGS = -I m4
@@ -69,31 +62,9 @@ else
 
 EXTRA_DIST += extra/gc.c
 libgc_la_SOURCES = \
-    allchblk.c alloc.c blacklst.c dbg_mlc.c \
-    dyn_load.c finalize.c gc_dlopen.c gcj_mlc.c headers.c \
-    mach_dep.c malloc.c mallocx.c mark.c mark_rts.c misc.c new_hblk.c \
-    obj_map.c os_dep.c ptr_chck.c reclaim.c specific.c typd_mlc.c
-
-# C Library: Architecture Dependent
-# ---------------------------------
-
-if WIN32_THREADS
-libgc_la_SOURCES += win32_threads.c
-else
-if PTHREADS
-# Not Cygwin or MinGW.
-libgc_la_SOURCES += pthread_start.c pthread_support.c
-if DARWIN_THREADS
-libgc_la_SOURCES += darwin_stop_world.c
-else
-libgc_la_SOURCES += pthread_stop_world.c
-endif
-endif
-endif
-
-if THREAD_LOCAL_ALLOC
-libgc_la_SOURCES += thread_local_alloc.c
-endif
+    allchblk.c alloc.c blacklst.c dbg_mlc.c dyn_load.c finalize.c \
+    headers.c mach_dep.c malloc.c mallocx.c mark.c mark_rts.c misc.c \
+    new_hblk.c obj_map.c os_dep.c ptr_chck.c reclaim.c typd_mlc.c
 
 if MAKE_BACK_GRAPH
 libgc_la_SOURCES += backgraph.c
@@ -105,7 +76,33 @@ endif
 
 if ENABLE_DISCLAIM
 libgc_la_SOURCES += fnlz_mlc.c
-pkginclude_HEADERS += include/gc_disclaim.h
+endif
+
+if ENABLE_GCJ_SUPPORT
+libgc_la_SOURCES += gcj_mlc.c
+endif
+
+# C library: architecture dependent
+# ---------------------------------
+
+if THREADS
+
+libgc_la_SOURCES += gc_dlopen.c pthread_start.c pthread_support.c
+
+if THREAD_LOCAL_ALLOC
+libgc_la_SOURCES += specific.c thread_local_alloc.c
+endif
+
+if WIN32_THREADS
+libgc_la_SOURCES += win32_threads.c
+else
+if DARWIN_THREADS
+libgc_la_SOURCES += darwin_stop_world.c
+else
+libgc_la_SOURCES += pthread_stop_world.c
+endif
+endif
+
 endif
 
 ## End of !SINGLE_GC_OBJ
@@ -113,14 +110,13 @@ endif
 
 if USE_INTERNAL_LIBATOMIC_OPS
 nodist_libgc_la_SOURCES = libatomic_ops/src/atomic_ops.c
-endif
-
 if NEED_ATOMIC_OPS_ASM
-nodist_libgc_la_SOURCES = libatomic_ops/src/atomic_ops_sysdeps.S
+nodist_libgc_la_SOURCES += libatomic_ops/src/atomic_ops_sysdeps.S
+endif
 endif
 
 # Include THREADDLLIBS here to ensure that the correct versions of
-# linuxthread semaphore functions get linked:
+# LinuxThreads semaphore (and clock_gettime) functions get linked:
 libgc_la_LIBADD = @addobjs@ $(THREADDLLIBS) $(UNWINDLIBS) $(ATOMIC_OPS_LIBS)
 libgc_la_DEPENDENCIES = @addobjs@
 libgc_la_LDFLAGS = $(extra_ldflags_libgc) -version-info $(LIBGC_VER_INFO) \
@@ -133,31 +129,26 @@ if CPLUSPLUS
 # C++ Interface
 # -------------
 lib_LTLIBRARIES += libgccpp.la
-pkginclude_HEADERS += include/gc_allocator.h include/gc_cpp.h
-include_HEADERS += include/extra/gc_cpp.h
 libgccpp_la_SOURCES = gc_badalc.cc gc_cpp.cc
-libgccpp_la_LIBADD = ./libgc.la
+libgccpp_la_LIBADD = libgc.la
 libgccpp_la_LDFLAGS = -version-info $(LIBGCCPP_VER_INFO) -no-undefined
 if GC_TBA_LIBRARY
 # The same as libgccpp but contains only gc_badalc.o.
 lib_LTLIBRARIES += libgctba.la
 libgctba_la_SOURCES = gc_badalc.cc
-libgctba_la_LIBADD = ./libgc.la
+libgctba_la_LIBADD = libgc.la
 # Set the same version as for libgccpp.
 libgctba_la_LDFLAGS = -version-info $(LIBGCCPP_VER_INFO) -no-undefined
 endif
 endif
 
-## FIXME: If Visual C++ users use Makefile.am, this should go into
-## pkginclude_HEADERS with proper AM_CONDITIONALization.  Otherwise
-## delete this comment.
 EXTRA_DIST += gc_badalc.cpp gc_cpp.cpp
 
 
 # Misc
 # ----
 
-AM_CXXFLAGS = @GC_CFLAGS@
+AM_CXXFLAGS = $(WERROR_CFLAGS) @GC_CFLAGS@
 AM_CFLAGS = $(WERROR_CFLAGS) @GC_CFLAGS@
 
 CFLAGS += $(CFLAGS_EXTRA)
@@ -165,13 +156,6 @@ CXXFLAGS += $(CFLAGS_EXTRA)
 
 ## FIXME: relies on internal code generated by automake.
 ## FIXME: ./configure --enable-dependency-tracking should be used
-#all_objs = @addobjs@ $(libgc_la_OBJECTS)
-#$(all_objs) : include/private/gcconfig.h include/private/gc_priv.h \
-#include/private/gc_hdrs.h include/gc.h include/gc_gcj.h \
-#include/gc_pthread_redirects.h include/gc_config_macros.h \
-#include/private/thread_local_alloc.h include/private_support.h \
-#include/private/pthread_stop_world.h \
-#include/gc_mark.h @addincludes@
 
 ## FIXME: we shouldn't have to do this, but automake forces us to.
 ## We use -Wp,-P to strip #line directives.  Irix `as' chokes on
@@ -198,26 +182,16 @@ CCASFLAGS += $(DEFS)
 # (see include/include.am for more)
 #
 
-# documentation which is not installed
-#
-EXTRA_DIST += README.QUICK
-
 # other makefiles
-# :GOTCHA: deliberately we do not include 'Makefile'
-EXTRA_DIST += NT_MAKEFILE OS2_MAKEFILE PCR-Makefile digimars.mak \
-    Makefile.direct SMakefile.amiga WCC_MAKEFILE autogen.sh CMakeLists.txt \
-    build/s60v3/bld.inf build/s60v3/libgc.mmp
+EXTRA_DIST += Makefile.direct NT_MAKEFILE WCC_MAKEFILE digimars.mak \
+    autogen.sh build.zig CMakeLists.txt Config.cmake.in
 
 # files used by makefiles other than Makefile.am
 #
 EXTRA_DIST += tools/if_mach.c tools/if_not_there.c tools/setjmp_t.c \
-    tools/threadlibs.c extra/MacOS.c extra/AmigaOS.c \
+    tools/threadlibs.c tools/callprocs.sh extra/msvc_dbg.c \
     extra/symbian/global_end.cpp extra/symbian/global_start.cpp \
-    extra/symbian/init_global_static_roots.cpp extra/symbian.cpp \
-    extra/pcr_interface.c extra/real_malloc.c \
-    extra/Mac_files/datastart.c extra/Mac_files/dataend.c \
-    extra/Mac_files/MacOS_config.h \
-    include/private/msvc_dbg.h extra/msvc_dbg.c tools/callprocs.sh
+    extra/symbian/init_global_static_roots.cpp extra/symbian.cpp
 
 #
 # :GOTCHA: GNU make rule for making .s out of .S is flawed,
@@ -228,9 +202,57 @@ EXTRA_DIST += tools/if_mach.c tools/if_not_there.c tools/setjmp_t.c \
 include include/include.am
 include cord/cord.am
 include tests/tests.am
-include doc/doc.am
+
 ## Putting these at the top causes cord to be built first, and not find
 ## libgc.a on HP/UX.  There may be a better fix.
+
+# Installed documentation.
+if ENABLE_DOCS
+dist_doc_DATA = \
+    AUTHORS \
+    ChangeLog \
+    LICENSE \
+    README.md
+
+docdocsdir = $(docdir)/docs
+dist_docdocs_DATA = \
+    docs/README.environment \
+    docs/README.macros \
+    docs/autoconf.md \
+    docs/cmake.md \
+    docs/cords.md \
+    docs/debugging.md \
+    docs/faq.md \
+    docs/finalization.md \
+    docs/gcdescr.md \
+    docs/gcinterface.md \
+    docs/leak.md \
+    docs/overview.md \
+    docs/porting.md \
+    docs/scale.md \
+    docs/simple_example.md \
+    docs/tree.md
+
+docdocsplatformsdir = $(docdocsdir)/platforms
+dist_docdocsplatforms_DATA = \
+    docs/platforms/README.aix \
+    docs/platforms/README.arm_cross \
+    docs/platforms/README.darwin \
+    docs/platforms/README.dgux386 \
+    docs/platforms/README.emscripten \
+    docs/platforms/README.ews4800 \
+    docs/platforms/README.hp \
+    docs/platforms/README.linux \
+    docs/platforms/README.os2 \
+    docs/platforms/README.sgi \
+    docs/platforms/README.solaris2 \
+    docs/platforms/README.symbian \
+    docs/platforms/README.uts \
+    docs/platforms/README.win32 \
+    docs/platforms/README.win64
+
+dist_man3_MANS = gc.man
+endif
 
 # A dummy target for mono build.
 test-bundle:
